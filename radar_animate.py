@@ -68,7 +68,7 @@ airport_lat, airport_lon, airport_altitude = data["airport_coordinate"]
 # runways_config_coordinates = data["runways_configuration"]["rwy_coordinates"]
 
 
-# Map, Fullscreen, Multple layers
+# map, fullscreen, multple layers
 m = folium.Map(location=(airport_lat, airport_lon), tiles=None, zoom_start=10)
 plugins.Fullscreen(position='topleft', title='FullScreen', title_cancel='Exit',
                    force_separate_button=True).add_to(m)
