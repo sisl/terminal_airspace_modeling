@@ -12,13 +12,13 @@ python3 data_preprocess.py -i data/trajs-raw.pkl data/train_input.json
 
 * **model_train.py** : learns the deviations of trajectories from procedures, distance vs. transit time, inter arrival-departure times
 ```bash
-python3 python model_train.py -i data/radar_data_preprocessed.json data/train_input.json 
+python3 model_train.py -i data/radar_data_preprocessed.json data/train_input.json 
     -o output/model.json
 ```
 
 * **model_generate.py** : generates synthetic trajectories using trained deviations and test inputs
 ```bash
-python3 python model_generate.py -i output/model.json data/test_input.json 
+python3 model_generate.py -i output/model.json data/test_input.json 
     -o output/synthetic_trajs.json
 ```
 
