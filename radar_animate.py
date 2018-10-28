@@ -98,7 +98,7 @@ for t in t_range:
             curr_t = start_t + datetime.timedelta(seconds=t.tolist()-min_t)
             point['time'] = curr_t.strftime('%Y-%m-%dT%H:%M:%S')
 
-            # aircraft icon image with different headings
+            # aircraft icon image with rotating headings
             curr_xEast = traj[ind,1]  #(m)   
             curr_yNorth = traj[ind,2]  #(m)
             curr_zUp = traj[ind,3]/10  #(m)
