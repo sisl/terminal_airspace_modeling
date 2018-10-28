@@ -27,7 +27,7 @@ python3 python model_generate.py -i output/model.json data/test_input.json
 python3 radar_animate.py -i output/synthetic_trajs.json data/test_input.json output/animation.html
 ```
 
-* **radar_plot.py** : draw different kinds of plots of actual/synthetic trajectories (log-'hist'ogram, 'all' trajectories, 'each' trajectory)
+* **radar_plot.py** : draws different kinds of plots of actual/synthetic trajectories (log-'hist'ogram, 'all' trajectories, 'each' trajectory)
 ```bash
 python3 radar_plot.py -i output/synthetic_trajs.json data/test_input.json hist
 ```
