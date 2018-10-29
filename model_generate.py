@@ -69,13 +69,10 @@ inter_arrdep_distr = model["inter_arrdep_model"]["distribution"]
 
 arr_arr_model = model["inter_arrdep_model"]["arr_arr"]
 arr_arr_means, arr_arr_covs, arr_arr_cluster_probs = np.array(arr_arr_model["means"]), np.array(arr_arr_model["covs"]), np.array(arr_arr_model["cluster_probs"])
-
 arr_dep_model = model["inter_arrdep_model"]["arr_dep"]
 arr_dep_means, arr_dep_covs, arr_dep_cluster_probs = np.array(arr_dep_model["means"]), np.array(arr_dep_model["covs"]), np.array(arr_dep_model["cluster_probs"])
-
 dep_arr_model = model["inter_arrdep_model"]["dep_arr"]
 dep_arr_means, dep_arr_covs, dep_arr_cluster_probs = np.array(dep_arr_model["means"]), np.array(dep_arr_model["covs"]), np.array(dep_arr_model["cluster_probs"])
-
 dep_dep_model = model["inter_arrdep_model"]["dep_dep"]
 dep_dep_means, dep_dep_covs, dep_dep_cluster_probs = np.array(dep_dep_model["means"]), np.array(dep_dep_model["covs"]), np.array(dep_dep_model["cluster_probs"])
 
