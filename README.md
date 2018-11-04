@@ -31,9 +31,11 @@ python3 src/radar_plot.py -i output/synthetic_trajs.csv data/test_input.json his
 
 
 ## Data format & Example files
-All input and output trajectory data should be in .csv format, where each row is a position of an aircraft [time, track_id, x, y, z].
-Airport and procedure information should be in .json format and given as input.
-Example files are in /data directory.
+* All input and output trajectory data should be in .csv format, where each row is a position of an aircraft [time, track_id, x, y, z].
+
+* Airport and procedure information should be in .json format and given as input.
+
+* Example files are in /data directory.
 
 
 
