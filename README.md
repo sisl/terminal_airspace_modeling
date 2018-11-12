@@ -42,16 +42,16 @@ python3 src/radar_plot.py -i output/synthetic_trajs.csv data/test_input.json his
 
 ## Input & Output files (Description)
 
-* radar_data.csv, synthetic_trajs.csv
+* **CSV files** (radar_data.csv, synthetic_trajs.csv)
   - Input and output trajectory data are in **CSV** format.
   - Each row is a ENU position of an aircraft from the airport  
-    **[time(seconds), track_id, x(meters), y(meters), z(meters)]**
+    : **[time(seconds), track_id, x(meters), y(meters), z(meters)]**
   
 
-* train_input.json, test_intput.json
+* **JSON files** (train_input.json, test_intput.json)
   - Airport runway and procedural information are given as input in **JSON** format.
   - Each row of runway/path coordinates is a point in runway/path  
-    **[latitude(degree), longitude(degree), altitude(feet)]**
+    : **[latitude(degree), longitude(degree), altitude(feet)]**
   - Path weights are the fraction of each path taken by actual trajectories. 
 
 
