@@ -2,11 +2,13 @@
 
 This repository contains an aircraft trajectory learning algorithm used for the terminal airspace modeling project.
 
-<img align="center" src="data/demo_0.gif" width="800">  
-
-<img align="center" src="data/demo_1.gif" width="800">  
-
-<img align="center" src="data/demo_2.png" width="800">  
+<img src="data/demo_0.gif" width="750">  
+  
+  
+<img src="data/demo_1.gif" width="800">  
+  
+  
+<img src="data/demo_2.png" width="850">  
 
 
 ## Scripts (Description & Usage)
