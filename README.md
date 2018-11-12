@@ -2,15 +2,15 @@
 
 This repository contains an aircraft trajectory learning algorithm used for the terminal airspace modeling project.
 
-<img src="data/demo_0.gif" width="800">
-<img src="data/demo_1.gif" width="800">
-<img src="data/demo_2.png" width="800">
+<img src="data/demo_0.gif" align="center" width="700">
+<img src="data/demo_1.gif" align="center" width="800">
+<img src="data/demo_2.png" align="center" width="900">
 
 
 ## Scripts (Description & Usage)
--i : input files
--o : output files
--mp : number of processes for multi-processing
+-i : input files  
+-o : output files  
+-mp : number of processes for multi-processing  
 
 
 * **model_train.py** : learns the deviations of trajectories from procedures, distance vs. transit time, inter arrival-departure times
@@ -40,12 +40,14 @@ python3 src/radar_plot.py -i output/synthetic_trajs.csv data/test_input.json his
 
 * radar_data.csv, synthetic_trajs.csv
   - Input and output trajectory data are in **CSV** format.
-  - Each row is a ENU position of an aircraft from the airport : [time(seconds), track_id, x(meters), y(meters), z(meters)]
+  - Each row is a ENU position of an aircraft from the airport  
+    **[time(seconds), track_id, x(meters), y(meters), z(meters)]**
   
 
 * train_input.json, test_intput.json
   - Airport runway and procedural information are given as input in **JSON** format.
-  - Each row of runway/path coordinates is a point in runway/path : [latitude(degree), longitude(degree), altitude(feet)]
+  - Each row of runway/path coordinates is a point in runway/path  
+    **[latitude(degree), longitude(degree), altitude(feet)]**
   - Path weights are the fraction of each path taken by actual trajectories. 
 
 
