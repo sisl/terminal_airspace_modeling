@@ -8,25 +8,21 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+import os, argparse
+import json
 import pymap3d as pm
 
 from scipy import stats, interpolate
 from scipy.interpolate import interp1d, PchipInterpolator
 
-import os
-import argparse
-import json
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-i", "--input_files", nargs="*", required=True, help='model.json, test_input.json')
 parser.add_argument("-o", "--output_file", required=True, help='synthetic trajs')
-parser.add_argument("-mp", "--multi_processes", required=True, help='num processes')
+parser.add_argument("-mp", "--multi_processes", required=False, help='num processes')
 args = parser.parse_args()
 
-
 M_TO_NM = 0.000539957
-M_TO_FT = 3.28084
 
 
 # ### To save plots of each synthetic trajectory
@@ -99,16 +95,16 @@ operation_departures = data["operation_type"]["departures"]
 print('operate arrivals :', operation_arrivals == 1)
 print('operate departures :', operation_departures == 1)
 
-
 ### runway_in_use
 arr_rwy = data["runway_in_use"]["arrivals"]["rwy"]  
 arr_RWY = np.array(data["runway_in_use"]["arrivals"]["rwy_coordinates"])
 arr_ENU_RWY = np.array([pm.geodetic2enu(fix[0], fix[1], fix[2], airport_lat, airport_lon, airport_altitude) for fix in arr_RWY])
 
-arr_RWY_x_interp = np.linspace(arr_ENU_RWY[0][0], arr_ENU_RWY[-1][0], num=30, endpoint=True)
-arr_RWY_y_interp = np.linspace(arr_ENU_RWY[0][1], arr_ENU_RWY[-1][1], num=30, endpoint=True)
+arr_RWY_x_interp = np.linspace(arr_ENU_RWY[0][0], arr_ENU_RWY[-1][0], num=50, endpoint=True)
+arr_RWY_y_interp = np.linspace(arr_ENU_RWY[0][1], arr_ENU_RWY[-1][1], num=50, endpoint=True)
 
 
+########################################################
 ### IAP
 IAP = np.array(data["runway_in_use"]["arrivals"]["IAP_path"])
 IF_min_alt = IAP[0][2]
@@ -126,14 +122,19 @@ u_interp = np.linspace(0, 1, num=100)
 [IAP_RWY_x_interp, IAP_RWY_y_interpSpl] = interpolate.splev(u_interp, interpSpl, der=0)
 IAP_RWY_xy_interp = np.column_stack((IAP_RWY_x_interp[:],IAP_RWY_y_interpSpl[:]))
 
+IAP_RWY_idx = np.argmin(np.linalg.norm(IAP_RWY_xy_interp - arr_ENU_RWY[0][:2], 1, axis=1))
+IAP_final_xy = IAP_RWY_xy_interp[:IAP_RWY_idx]
+    
 # IAP_z coordinates
 IAP_indices = [np.argmin(np.linalg.norm(IAP_RWY_xy_interp - fix[:2], 1, axis=1)) for fix in ENU_IAP]
-f = interp1d(IAP_indices, ENU_IAP[:,2])
-t_interp = range(0, IAP_indices[-1])
+if IAP_indices[-1] != IAP_RWY_idx:
+    f = interp1d(IAP_indices[:-1] + [IAP_RWY_idx], np.append(ENU_IAP[:-1,2], [0])) 
+else:
+    f = interp1d(IAP_indices, ENU_IAP[:,2])   
+t_interp = range(0, IAP_RWY_idx)
 IAP_final_z = f(t_interp)
 
 # final IAP coordinates
-IAP_final_xy = IAP_RWY_xy_interp[:IAP_indices[-1]]
 IAP_final = np.column_stack((IAP_final_xy, IAP_final_z))
 
 # smooth path
@@ -145,6 +146,7 @@ test_IAP_path[:, 1] = PchipInterpolator(t, IAP_final[:,1])(t_interp)
 test_IAP_path[:, 2] = PchipInterpolator(t, IAP_final[:,2])(t_interp)
 
 
+########################################################
 ### vector paths
 vector_paths = np.array(data["runway_in_use"]["arrivals"]["vector_paths"])
 test_vector_paths = []
@@ -161,7 +163,8 @@ for path in vector_paths:
     test_vector_paths.append(ENU_path_interp)
 test_vector_paths_weights = data["runway_in_use"]["arrivals"]["vector_paths_weights"]
     
-
+    
+########################################################
 ### departure paths
 dep_paths = np.array(data["runway_in_use"]["departures"]["dep_paths"])
 test_dep_paths = []
@@ -223,12 +226,13 @@ for i, arrdep_ind in enumerate(arrdep_mix):
         
         # transit time given distance
         given_b = vector_syn_dev[0,-1]  #vector_total_dist
+        dt_ind = np.argmin(np.abs(vector_means_dist_time[:,0] - given_b))
 
-        mu_a = vector_means_dist_time[0,1].reshape(1,)  #mean_1
-        mu_b = vector_means_dist_time[0,0].reshape(1,)  #mean_2
-        sigma_A = vector_covs_dist_time[1,1].reshape(-1,1)  #cov_11 
-        sigma_B = vector_covs_dist_time[0,0].reshape(-1,1)   #cov_22
-        sigma_C = vector_covs_dist_time[1,0].reshape(-1,1)   #cov_12
+        mu_a = vector_means_dist_time[dt_ind,1].reshape(1,)  #mean_1
+        mu_b = vector_means_dist_time[dt_ind,0].reshape(1,)  #mean_2
+        sigma_A = vector_covs_dist_time[dt_ind,1,1].reshape(-1,1)  #cov_11 
+        sigma_B = vector_covs_dist_time[dt_ind,0,0].reshape(-1,1)   #cov_22
+        sigma_C = vector_covs_dist_time[dt_ind,1,0].reshape(-1,1)   #cov_12
 
         mu_a_b = mu_a + sigma_C.dot(np.linalg.inv(sigma_B)).dot(given_b - mu_b)  #mean_1|2 
         sigma_a_b = sigma_A - sigma_C.dot(np.linalg.inv(sigma_B)).dot(sigma_C.T)  #cov_1|2    
@@ -242,7 +246,7 @@ for i, arrdep_ind in enumerate(arrdep_mix):
         ########################################################################
         ### IAP segment 
         ### (sampling IAP_seg traj, conditioned on the last 'obs_p' points of vector_seg traj)
-        obs_p = 5  #number of last points of vector_segment
+        obs_p = 10  #number of last points of vector_segment
 
         IAP_nominal_path_original = test_IAP_path
         IAP_nominal_path = IAP_nominal_path_original.reshape(IAP_nominal_path_original.shape[0]*IAP_nominal_path_original.shape[1])  
@@ -269,12 +273,13 @@ for i, arrdep_ind in enumerate(arrdep_mix):
 
         # transit time given distance
         given_b = IAP_syn_dev[0,-1]  ## IAP distance
+        dt_ind = np.argmin(np.abs(IAP_means_dist_time[:,0] - given_b))
 
-        mu_a = IAP_means_dist_time[0,1].reshape(1,)  
-        mu_b = IAP_means_dist_time[0,0].reshape(1,) 
-        sigma_A = IAP_covs_dist_time[1,1].reshape(-1,1) 
-        sigma_B = IAP_covs_dist_time[0,0].reshape(-1,1)  
-        sigma_C = IAP_covs_dist_time[1,0].reshape(-1,1) 
+        mu_a = IAP_means_dist_time[dt_ind,1].reshape(1,)  
+        mu_b = IAP_means_dist_time[dt_ind,0].reshape(1,) 
+        sigma_A = IAP_covs_dist_time[dt_ind,1,1].reshape(-1,1) 
+        sigma_B = IAP_covs_dist_time[dt_ind,0,0].reshape(-1,1)  
+        sigma_C = IAP_covs_dist_time[dt_ind,1,0].reshape(-1,1) 
 
         mu_a_b = mu_a + sigma_C.dot(np.linalg.inv(sigma_B)).dot(given_b - mu_b)  
         sigma_a_b = sigma_A - sigma_C.dot(np.linalg.inv(sigma_B)).dot(sigma_C.T)
@@ -335,12 +340,13 @@ for i, arrdep_ind in enumerate(arrdep_mix):
         
         # transit time given distance
         given_b = dep_syn_dev[0,-1]  # departure distance
+        dt_ind = np.argmin(np.abs(dep_means_dist_time[:,0] - given_b))
 
-        mu_a = dep_means_dist_time[0,1].reshape(1,)  
-        mu_b = dep_means_dist_time[0,0].reshape(1,) 
-        sigma_A = dep_covs_dist_time[1,1].reshape(-1,1)
-        sigma_B = dep_covs_dist_time[0,0].reshape(-1,1)
-        sigma_C = dep_covs_dist_time[1,0].reshape(-1,1)
+        mu_a = dep_means_dist_time[dt_ind,1].reshape(1,)  
+        mu_b = dep_means_dist_time[dt_ind,0].reshape(1,) 
+        sigma_A = dep_covs_dist_time[dt_ind,1,1].reshape(-1,1)
+        sigma_B = dep_covs_dist_time[dt_ind,0,0].reshape(-1,1)
+        sigma_C = dep_covs_dist_time[dt_ind,1,0].reshape(-1,1)
 
         mu_a_b = mu_a + sigma_C.dot(np.linalg.inv(sigma_B)).dot(given_b - mu_b) 
         sigma_a_b = sigma_A - sigma_C.dot(np.linalg.inv(sigma_B)).dot(sigma_C.T)  
@@ -398,9 +404,9 @@ for i, arrdep_ind in enumerate(arrdep_mix):
     traj_smooth[:, 3] = PchipInterpolator(t_smooth_0, traj_smooth_0[:,2])(t_smooth)  #yNorth
     traj_smooth[:, 4] = PchipInterpolator(t_smooth_0, traj_smooth_0[:,3])(t_smooth)  #zUp
 
-#     all_recon_trajs.append(traj_smooth)     
+    # all_recon_trajs.append(traj_smooth) 
     old_rwy_time = rwy_time
-
+    
 
     outputFile = open(args.output_file,"a")
     for point in traj_smooth:
@@ -408,24 +414,26 @@ for i, arrdep_ind in enumerate(arrdep_mix):
             outputFile.write(str(item) + ',')
         outputFile.write('\n')
     outputFile.close()
-    
-    
-#     ### To save plots of each synthetic trajectory
-#     if arrdep_ind == 0:
-#         plt.figure(figsize=(5,5)); plt.xlabel('East (NM)'); plt.ylabel('North (NM)')
-#         plt.xlim([-30, 30]); plt.ylim([-30, 30]); plot_rwy(rwy_coords, color='black');
-        
-#         plt.plot(IAP_nominal_path_original[:,0]*M_TO_NM, IAP_nominal_path_original[:,1]*M_TO_NM, '-.', c='black')
-#         plt.plot(vector_recon_traj[-obs_p*3:].reshape(obs_p, 3)[:,0]*M_TO_NM, vector_recon_traj[-obs_p*3:].reshape(obs_p, 3)[:,1]*M_TO_NM, c='red', lw=5)
 
-#         recon_t_ind = np.argmin(np.abs(traj_smooth[:,0] - recon_time_traj[350]))
-#         plt.plot(traj_smooth[:recon_t_ind,1]*M_TO_NM, traj_smooth[:recon_t_ind,2]*M_TO_NM, '-.', c='blue')
-#         plt.plot(traj_smooth[recon_t_ind:,1]*M_TO_NM, traj_smooth[recon_t_ind:,2]*M_TO_NM, '--', c='blue')
-#         plt.savefig('data/synthetic_trajs_plot/synthetic_traj_%s' % i)
-        
-#     elif arrdep_ind == 1:
-#         plt.figure(figsize=(5,5)); plt.xlabel('East (NM)'); plt.ylabel('North (NM)')
-#         plt.xlim([-30, 30]); plt.ylim([-30, 30]); plot_rwy(rwy_coords, color='black');
-#         plt.plot(traj_smooth[:,1]*M_TO_NM, traj_smooth[:,2]*M_TO_NM, '-.', c='green')
-#         plt.savefig('data/synthetic_trajs_plot/synthetic_traj_%s' % i)
+    
+    ### To save plots of each synthetic trajectory
+    # if arrdep_ind == 0:
+    #     plt.figure(figsize=(5,5)); plt.xlabel('East (NM)'); plt.ylabel('North (NM)')
+    #     plt.xlim([-30, 30]); plt.ylim([-30, 30]); plot_rwy(rwy_coords, color='black');
+    #
+    #     plt.plot(IAP_nominal_path_original[:,0]*M_TO_NM, IAP_nominal_path_original[:,1]*M_TO_NM, '-.', c='black')
+    #     plt.plot(vector_recon_traj[-obs_p*3:].reshape(obs_p, 3)[:,0]*M_TO_NM, vector_recon_traj[-obs_p*3:].reshape(obs_p, 3)[:,1]*M_TO_NM, c='red', lw=5)
+    #
+    #     recon_t_ind = np.argmin(np.abs(traj_smooth[:,0] - recon_time_traj[350]))
+    #     plt.plot(traj_smooth[:recon_t_ind,2]*M_TO_NM, traj_smooth[:recon_t_ind,3]*M_TO_NM, '-.', c='blue')
+    #     plt.plot(traj_smooth[recon_t_ind:,2]*M_TO_NM, traj_smooth[recon_t_ind:,3]*M_TO_NM, '--', c='blue')
+    #     plt.savefig('data/synthetic_trajs_plot/synthetic_traj_%s' % i)
+    #     plt.close()
+    #
+    # elif arrdep_ind == 1:
+    #     plt.figure(figsize=(5,5)); plt.xlabel('East (NM)'); plt.ylabel('North (NM)')
+    #     plt.xlim([-30, 30]); plt.ylim([-30, 30]); plot_rwy(rwy_coords, color='black');
+    #     plt.plot(traj_smooth[:,2]*M_TO_NM, traj_smooth[:,3]*M_TO_NM, '-.', c='green')
+    #     plt.savefig('data/synthetic_trajs_plot/synthetic_traj_%s' % i)
+    #     plt.close()
 
