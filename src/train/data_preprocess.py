@@ -9,7 +9,7 @@ from scipy.interpolate import PchipInterpolator
 
 def data_preprocess(trajs, input_data):
 
-    # airport_name = input_data["airport_name"]  #KJFK
+    airport_name = input_data["airport_name"]  #KJFK
     airport_lat, airport_lon, airport_altitude = input_data["airport_coordinate"]  #[40.63993, -73.77869, 12.7]
     rwy_names = input_data["runways_configuration"]["rwy_names"]  #["04L-22R", "04R-22L", "13L-31R", "13R-31L"]
     rwy_coords = input_data["runways_configuration"]["rwy_coordinates"]
@@ -99,13 +99,13 @@ def data_preprocess(trajs, input_data):
         ind_d, ind_f, ind_l = measure_points[l]
 
         for traj in trajs:
-            # t = traj[:, 0]
+            t = traj[:, 0]
             p = traj[:, 1:4]
             dist = [np.linalg.norm([p[ind_d, :2] - [rwy[0], rwy[1]]], 2) for rwy in rwy_coords_ENU]
 
             closest_rwy = rwy_names[np.argmin(dist)]  
-            # slope_x = p[ind_l, 0] - p[ind_f, 0]
-            # slope_y = p[ind_l, 1] - p[ind_f, 1]
+            slope_x = p[ind_l, 0] - p[ind_f, 0]
+            slope_y = p[ind_l, 1] - p[ind_f, 1]
             if eval(conditions[closest_rwy][1][0]) == 1 and eval(conditions[closest_rwy][1][1]) == 1:
                 exec("eval(operations_list[l][:3] + '_' + closest_rwy).append(traj.tolist())")
 
