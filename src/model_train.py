@@ -17,10 +17,8 @@ import os, argparse
 import json
 
 import math
-import copy
-
 import pymap3d as pm
-from scipy import stats, interpolate
+from scipy import interpolate
 from scipy.interpolate import interp1d, PchipInterpolator
 from sklearn.mixture import GaussianMixture
 from tslearn import metrics 
@@ -32,7 +30,7 @@ from train.data_preprocess import data_preprocess
 parser = argparse.ArgumentParser()
 parser.add_argument("-i", "--input_files", nargs="*", required=True, help='radar_data.csv, train_input.json')
 parser.add_argument("-o", "--output_file", required=True, help='model.json')
-parser.add_argument("-mp", "--multi_processes", required=True, help='num processes')
+parser.add_argument("-mp", "--multi_processes", required=False, help='num processes')
 args = parser.parse_args()
 
 
@@ -97,16 +95,16 @@ for rwy in train_arr_rwy_list:
 
     ### Connect IAP and RWY coordinates
     # IAP_x, IAP_y coordinates
-    arr_RWY = train_rwy_coords_list[str(rwy)]                            
+    arr_RWY = train_rwy_coords_list[str(rwy)]
     arr_RWY_ENU = np.array([pm.geodetic2enu(fix[0], fix[1], fix[2], airport_lat, airport_lon, airport_altitude) for fix in arr_RWY])
     arr_RWY_x_interp = np.linspace(arr_RWY_ENU[0][0], arr_RWY_ENU[-1][0], num=20, endpoint=True)
     arr_RWY_y_interp = np.linspace(arr_RWY_ENU[0][1], arr_RWY_ENU[-1][1], num=20, endpoint=True)
 
-    IAP = input_data["IAP"][str("IAP_" + rwy)]    
+    IAP = input_data["IAP"][str("IAP_" + rwy)]
     IAP_ENU = np.array([pm.geodetic2enu(fix[0], fix[1], fix[2], airport_lat, airport_lon, airport_altitude) for fix in IAP])
-    IAP_x_interp = np.linspace(IAP_ENU[0][0], IAP_ENU[1][0], num=50, endpoint=True) 
-    IAP_y_interp = np.linspace(IAP_ENU[0][1], IAP_ENU[1][1], num=50, endpoint=True) 
-    
+    IAP_x_interp = np.linspace(IAP_ENU[0][0], IAP_ENU[1][0], num=50, endpoint=True)
+    IAP_y_interp = np.linspace(IAP_ENU[0][1], IAP_ENU[1][1], num=50, endpoint=True)
+
     IAP_RWY_x = np.concatenate((IAP_x_interp[:-1], arr_RWY_x_interp), axis=0)
     IAP_RWY_y = np.concatenate((IAP_y_interp[:-1], arr_RWY_y_interp), axis=0)
 
@@ -114,15 +112,20 @@ for rwy in train_arr_rwy_list:
     u_interp = np.linspace(0, 1, num=100)
     [IAP_RWY_x_interp, IAP_RWY_y_interpSpl] = interpolate.splev(u_interp, interpSpl, der=0)
     IAP_RWY_xy_interp = np.column_stack((IAP_RWY_x_interp[:],IAP_RWY_y_interpSpl[:]))
+
+    IAP_RWY_idx = np.argmin(np.linalg.norm(IAP_RWY_xy_interp - arr_RWY_ENU[0][:2], 1, axis=1))
+    IAP_final_xy = IAP_RWY_xy_interp[:IAP_RWY_idx]
     
     # IAP_z coordinates
     IAP_indices = [np.argmin(np.linalg.norm(IAP_RWY_xy_interp - fix[:2], 1, axis=1)) for fix in IAP_ENU]
-    f = interp1d(IAP_indices, IAP_ENU[:,2])
-    t_interp = range(0, IAP_indices[-1])
+    if IAP_indices[-1] != IAP_RWY_idx:
+        f = interp1d(IAP_indices[:-1] + [IAP_RWY_idx], np.append(IAP_ENU[:-1,2], [0]))    
+    else:
+        f = interp1d(IAP_indices, IAP_ENU[:,2])   
+    t_interp = range(0, IAP_RWY_idx)
     IAP_final_z = f(t_interp)
 
-    # final IAP coordinates (x,y,z)
-    IAP_final_xy = IAP_RWY_xy_interp[:IAP_indices[-1]]
+    # final IAP coordinates (x,y,zs)
     IAP_path = np.column_stack((IAP_final_xy, IAP_final_z))
 
     
@@ -151,9 +154,9 @@ for rwy in train_arr_rwy_list:
         if np.linalg.norm(traj[RWY_idx,1:3] - IAP_path[-1,:2], 2) * M_TO_NM < 0.5:    
             IAP_trajs.append(traj[IAP_idx:RWY_idx, :])
             vector_trajs.append(traj[:IAP_idx, :])
-    
-    
-    ### Rescale paths & trajs to have the same length => Compute deviations  
+
+
+    ### Rescale paths & trajs to have the same length => Compute deviations
     ### 1. IAP segment
     IAP_target_length = 150
 
@@ -171,11 +174,11 @@ for rwy in train_arr_rwy_list:
         IAP_traj_new[:, 2] = PchipInterpolator(t, traj[:, 2])(t_rescaled) #y_North
         IAP_traj_new[:, 3] = PchipInterpolator(t, traj[:, 3])(t_rescaled) #z_Up
         IAP_trajs_rescaled.append(IAP_traj_new.tolist())
-        
+
         traj_distance = np.sum([np.linalg.norm((traj[j,1:3], traj[j+1, 1:3]), 2) for j in range(len(traj)-1)])
         IAP_trajs_dist.append(traj_distance.tolist())
 
-        
+
     # 1-2) Rescale IAP_path
     IAP_path_rescaled = []
     for i, path in enumerate([IAP_path]):
@@ -183,34 +186,40 @@ for rwy in train_arr_rwy_list:
         t_rescaled = np.arange(t.min(), t.max()+1, (t.max()+1 - t.min()) / IAP_target_length)
         if len(t_rescaled) != IAP_target_length:
             t_rescaled = t_rescaled[:IAP_target_length]
-
+ 
         IAP_path_new = np.zeros((t_rescaled.shape[-1], 3))
         IAP_path_new[:, 0] = PchipInterpolator(t, path[:, 0])(t_rescaled)
         IAP_path_new[:, 1] = PchipInterpolator(t, path[:, 1])(t_rescaled)
-        IAP_path_new[:, 2] = np.zeros(len(t_rescaled))
+        IAP_path_new[:, 2] = PchipInterpolator(t, path[:, 2])(t_rescaled) #np.zeros(len(t_rescaled))
         IAP_path_rescaled.append(IAP_path_new.tolist())
-    
-    
+
+
     # 1-3) IAP_deviations
     IAP_deviations=[]
     for i, traj in enumerate(IAP_trajs_rescaled):
         traj = np.array(traj)
         deviations = traj[:,1:4] - np.array(IAP_path_rescaled)[0][:,0:3]
         IAP_deviations.append(deviations.tolist())
-              
+
     deviation_data[str(rwy)]["IAP_path"] = IAP_path_rescaled  ## IAP path
     deviation_data[str(rwy)]["IAP_trajs"] = IAP_trajs_rescaled  ## IAP segment of actual arrival trajs
     deviation_data[str(rwy)]["IAP_deviations"] = IAP_deviations  ## deviations (of IAP_trajs from IAP_path)
     deviation_data[str(rwy)]["IAP_trajs_dist"] = IAP_trajs_dist  ## total distance of IAP_trajs
-    
+
     all_IAP_path = all_IAP_path + IAP_path_rescaled
     all_IAP_trajs = all_IAP_trajs + IAP_trajs_rescaled
     all_IAP_deviations = all_IAP_deviations + IAP_deviations
     all_IAP_trajs_dist = all_IAP_trajs_dist + IAP_trajs_dist
- 
     
+    
+    ###################################################################
     ### 2. vector segment
-    vector_paths = input_data["vector"][str("vector_" + rwy)] 
+    vector_paths = input_data["vector"][str("vector_" + rwy)]
+    vector_paths_ENU = []
+    for path in vector_paths:
+        vector_paths_ENU.append(np.array([pm.geodetic2enu(fix[0], fix[1], fix[2], airport_lat, airport_lon, airport_altitude) for fix in path]))
+    vector_paths_ENU = np.array(vector_paths_ENU)
+    
     vector_target_length = 350
     
     # 2-1) Rescale vector_trajs
@@ -220,34 +229,34 @@ for rwy in train_arr_rwy_list:
         t_rescaled = np.arange(t.min(), t.max()+1, (t.max()+1 - t.min()) / vector_target_length)
         if len(t_rescaled) != vector_target_length:
             t_rescaled = t_rescaled[:vector_target_length]
-            
+
         vector_traj_new = np.zeros((t_rescaled.shape[-1], 4))
         vector_traj_new[:, 0] = t_rescaled
         vector_traj_new[:, 1] = PchipInterpolator(t, traj[:,1])(t_rescaled) #x_East
         vector_traj_new[:, 2] = PchipInterpolator(t, traj[:,2])(t_rescaled) #y_North
         vector_traj_new[:, 3] = PchipInterpolator(t, traj[:,3])(t_rescaled) #z_Up
         vector_trajs_rescaled.append(vector_traj_new)
-        
-    
+
+
     # 2-2) Rescale vector_paths
-    
-    # If vector_paths include IAP segments info in it :
+
+#     # If vector_paths include IAP segments info in it :
 #     vector_paths_trunc=[]
-#     for i, path in enumerate(vector_paths):
-#         IAP_idx_list=[]  
-#         for j in range(len(path)-50):        
+#     for i, path in enumerate(vector_paths_ENU):
+#         IAP_idx_list=[]
+#         for j in range(len(path)-50):
 #             for k in range(len(IAP_path)):
-#                 if np.linalg.norm(path[j,:2] - IAP_path[k,:2], 2) * M_TO_NM < 0.2:   
-#                     IAP_idx_list.append(j)      
-                    
+#                 if np.linalg.norm(path[j,:2] - IAP_path[k,:2], 2) * M_TO_NM < 0.2:
+#                     IAP_idx_list.append(j)
+
 # #         if IAP_idx_list==[]:
-# #             continue   
+# #             continue
 #         IAP_idx = np.min(IAP_idx_list)
-#         vector_paths_trunc.append(path[:IAP_idx, :])   
+#         vector_paths_trunc.append(path[:IAP_idx, :])
 
     # Otherwise :
-    vector_paths_trunc = vector_paths
-    
+    vector_paths_trunc = vector_paths_ENU
+
     vector_paths_rescaled = []
     for i, path in enumerate(vector_paths_trunc):
         path = np.array(path)
@@ -255,14 +264,29 @@ for rwy in train_arr_rwy_list:
         t_rescaled = np.arange(t.min(), t.max()+1, (t.max()+1 - t.min()) / vector_target_length)
         if len(t_rescaled) != vector_target_length:
             t_rescaled = t_rescaled[:vector_target_length]
-            
+
         vector_path_new = np.zeros((t_rescaled.shape[-1], 3))
         vector_path_new[:, 0] = PchipInterpolator(t, path[:, 0])(t_rescaled) #x_East
         vector_path_new[:, 1] = PchipInterpolator(t, path[:, 1])(t_rescaled) #y_North
         vector_path_new[:, 2] = PchipInterpolator(t, path[:, 2])(t_rescaled) #z_Up
         vector_paths_rescaled.append(vector_path_new.tolist())
-    
-    
+
+
+    # 1-2) Rescale IAP_path
+    IAP_path_rescaled = []
+    for i, path in enumerate([IAP_path]):
+        t = np.arange(0, len(path))
+        t_rescaled = np.arange(t.min(), t.max()+1, (t.max()+1 - t.min()) / IAP_target_length)
+        if len(t_rescaled) != IAP_target_length:
+            t_rescaled = t_rescaled[:IAP_target_length]
+ 
+        IAP_path_new = np.zeros((t_rescaled.shape[-1], 3))
+        IAP_path_new[:, 0] = PchipInterpolator(t, path[:, 0])(t_rescaled)
+        IAP_path_new[:, 1] = PchipInterpolator(t, path[:, 1])(t_rescaled)
+        IAP_path_new[:, 2] = PchipInterpolator(t, path[:, 2])(t_rescaled)
+        IAP_path_rescaled.append(IAP_path_new.tolist())
+        
+
     # 2-3) vector_deviations
     # vector_path for each vector_traj
     labels=[]
@@ -274,22 +298,22 @@ for rwy in train_arr_rwy_list:
             dtw_path, dtw_dist = metrics.dtw_path(traj[:,1:4], path[:,0:3])
             dtw_dists.append(dtw_dist)
         labels.append(np.argmin(dtw_dists))
-        
-    # deviations    
+
+    # deviations
     vector_trajs_updated, vector_trajs_dist, vector_deviations = [], [], []
     for j, path in enumerate(vector_paths_rescaled):
         path = np.array(path)
         for i, traj in enumerate(vector_trajs_rescaled):
             if labels[i] == j:
                 vector_trajs_updated.append(traj.tolist())
-                
+
                 deviations = traj[:,1:4] - path[:,0:3]
                 vector_deviations.append(deviations.tolist())
-                
+
                 traj_dist = np.sum([np.linalg.norm((traj[k,1:3], traj[k+1, 1:3]), 2) for k in range(len(traj)-1)])
                 vector_trajs_dist.append(traj_dist.tolist())
 
-        
+
     deviation_data[str(rwy)]["vector_paths"] = vector_paths_rescaled  ## vector paths
     deviation_data[str(rwy)]["vector_trajs"] = vector_trajs_updated  ## vector segment of actual arrival trajs
     deviation_data[str(rwy)]["vector_deviations"] = vector_deviations  ## deviations (of vector_trajs from its vector_path)
@@ -308,52 +332,57 @@ train_dep_rwy_list = input_data["train_rwy_list"]["departures"]
 for rwy in train_dep_rwy_list:
     if str(rwy) not in deviation_data:
         deviation_data[str(rwy)] = dict()
-    
+
     dep_trajs = np.array(radar_data["dep"][str(rwy)])
-    dep_paths = input_data["departure"][str("departure_" + rwy)] 
+    dep_paths = input_data["departure"][str("departure_" + rwy)]
+    dep_paths_ENU = []
+    for path in dep_paths:
+        dep_paths_ENU.append(np.array([pm.geodetic2enu(fix[0], fix[1], fix[2], airport_lat, airport_lon, airport_altitude) for fix in path]))
+    dep_paths_ENU = np.array(dep_paths_ENU)
+    
     dep_target_length = 250
 
     # Rescale departure_paths
     dep_paths_rescaled = []
-    for i, path in enumerate(dep_paths):
+    for i, path in enumerate(dep_paths_ENU):
         path = np.array(path)
-        
+
         t = np.arange(0, len(path))
         t_rescaled = np.arange(t.min(), t.max()+1, (t.max()+1 - t.min()) / dep_target_length)
         if len(t_rescaled) != dep_target_length:
             t_rescaled = t_rescaled[:dep_target_length]
-            
+
         dep_path_new = np.zeros((t_rescaled.shape[-1], 3))
         dep_path_new[:, 0] = PchipInterpolator(t, path[:, 0])(t_rescaled) #x_East
         dep_path_new[:, 1] = PchipInterpolator(t, path[:, 1])(t_rescaled) #y_North
         dep_path_new[:, 2] = PchipInterpolator(t, path[:, 2])(t_rescaled) #z_Up
         dep_paths_rescaled.append(dep_path_new.tolist())
-        
-        
+
+
     # dep_path for each dep_traj
     labels=[]
-    for i, traj in enumerate(dep_trajs): 
+    for i, traj in enumerate(dep_trajs):
         dtw_dists=[]
         for j, path in enumerate(dep_paths_rescaled):
             path = np.array(path)
             dtw_path, dtw_dist = metrics.dtw_path(traj[:,1:4], path[:,0:3])
             dtw_dists.append(dtw_dist)
         labels.append(np.argmin(dtw_dists))
-        
-    # deviations  
+
+    # deviations
     dep_trajs_updated, dep_trajs_dist, dep_deviations = [], [], []
-    for j, path in enumerate(dep_paths_rescaled):     
+    for j, path in enumerate(dep_paths_rescaled):
         path = np.array(path)
         for i, traj in enumerate(dep_trajs):
             if labels[i] == j:
                 dep_trajs_updated.append(traj.tolist())
-                
+
                 deviations = traj[:,1:4] - path[:,0:3]
                 dep_deviations.append(deviations.tolist())
-   
+
                 traj_dist = np.sum([np.linalg.norm((traj[k,1:3], traj[k+1, 1:3]), 2) for k in range(len(traj)-1)])
                 dep_trajs_dist.append(traj_dist.tolist())
-        
+
     deviation_data[str(rwy)]["dep_paths"] = dep_paths_rescaled  ## departure paths
     deviation_data[str(rwy)]["dep_trajs"] = dep_trajs_updated  ## actual departure trajs
     deviation_data[str(rwy)]["dep_deviations"] = dep_deviations  ## deviations (of dep_trajs from its dep_path)
@@ -364,10 +393,9 @@ for rwy in train_dep_rwy_list:
     all_dep_deviations = all_dep_deviations + dep_deviations
     all_dep_trajs_dist = all_dep_trajs_dist + dep_trajs_dist
 
-    
+
 with open("data/deviation_data.json","w") as f:
     json.dump(deviation_data, f)
-
     
     
 ########################################################################
@@ -379,65 +407,66 @@ output_model = dict()
 all_IAP_trajs = np.array(all_IAP_trajs)
 all_IAP_deviations = np.array(all_IAP_deviations)
 
-L = all_IAP_deviations[0].shape[0] 
+L = all_IAP_deviations[0].shape[0]
 N = len(all_IAP_deviations)
-IAP_X = np.zeros((N, L*3+2))  
+IAP_X = np.zeros((N, L*3+2))
 
 for i, dev_data in enumerate(all_IAP_deviations):
-    IAP_X[i, 0] = all_IAP_trajs[i][-1,0] - all_IAP_trajs[i][0,0]          
+    IAP_X[i, 0] = all_IAP_trajs[i][-1,0] - all_IAP_trajs[i][0,0]
     IAP_X[i, 1:-1] = dev_data.reshape(dev_data.shape[0]*dev_data.shape[1])
     IAP_X[i, -1] = all_IAP_trajs_dist[i]
-    
+
 # GMM of total_dist & transit_time
-IAP_gmm_dist_time = GaussianMixture(n_components=1, reg_covar=2e-06, covariance_type='tied')
+IAP_gmm_dist_time = GaussianMixture(n_components=3, reg_covar=1e-04)
 IAP_gmm_dist_time.fit(np.column_stack((IAP_X[:,-1], IAP_X[:,0])))
-IAP_means_dist_time, IAP_covs_dist_time = IAP_gmm_dist_time.means_, IAP_gmm_dist_time.covariances_
+IAP_means_dist_time, IAP_covs_dist_time, IAP_weights_dist_time  = IAP_gmm_dist_time.means_, IAP_gmm_dist_time.covariances_, IAP_gmm_dist_time.weights_
 
 # GMM of IAP deviations
-IAP_gmm = GaussianMixture(n_components=1, reg_covar=2e-05)
+IAP_gmm = GaussianMixture(n_components=6, reg_covar=1e-04)
 IAP_gmm.fit(IAP_X)
 IAP_labels = IAP_gmm.predict(IAP_X)
 IAP_means, IAP_covs, IAP_cluster_probs = IAP_gmm.means_, IAP_gmm.covariances_, IAP_gmm.weights_
 
-output_model["IAP_model"] = {"means": IAP_means.tolist(), 
-                             "covs": IAP_covs.tolist(), 
+output_model["IAP_model"] = {"means": IAP_means.tolist(),
+                             "covs": IAP_covs.tolist(),
                              "cluster_probs": IAP_cluster_probs.tolist(),
-                             "X_train": IAP_X.tolist(), 
+                             "X_train": IAP_X.tolist(),
                              "y_train": IAP_labels.tolist(),
                              "means_dist_time": IAP_means_dist_time.tolist(),
-                             "covs_dist_time": IAP_covs_dist_time.tolist()}
+                             "covs_dist_time": IAP_covs_dist_time.tolist(),
+                             "weights_dist_time": IAP_weights_dist_time.tolist()}
 
 
 ### 2. vector model
 all_vector_trajs = np.array(all_vector_trajs)
 all_vector_deviations = np.array(all_vector_deviations)
 
-L = all_vector_deviations[0].shape[0] 
+L = all_vector_deviations[0].shape[0]
 N = len(all_vector_deviations)
 vector_X = np.zeros((N, L*3+2))
 
 for i, dev_data in enumerate(all_vector_deviations):
-    vector_X[i, 0] = all_vector_trajs[i][-1,0] - all_vector_trajs[i][0,0]        
+    vector_X[i, 0] = all_vector_trajs[i][-1,0] - all_vector_trajs[i][0,0]
     vector_X[i, 1:-1] = dev_data.reshape(dev_data.shape[0]*dev_data.shape[1])
     vector_X[i, -1] = all_vector_trajs_dist[i]
 
 # GMM of total_dist & transit_time
-vector_gmm_dist_time = GaussianMixture(n_components=2, reg_covar=2e-05, covariance_type='tied')
+vector_gmm_dist_time = GaussianMixture(n_components=5, reg_covar=1e-04)
 vector_gmm_dist_time.fit(np.column_stack((vector_X[:,-1], vector_X[:,0])))
 vector_means_dist_time, vector_covs_dist_time = vector_gmm_dist_time.means_, vector_gmm_dist_time.covariances_
 
 # GMM of vector deviations
-vector_gmm = GaussianMixture(n_components=8, reg_covar=1e-05)
+vector_gmm = GaussianMixture(n_components=9, reg_covar=1e-04)
 vector_gmm.fit(vector_X)
 vector_labels = vector_gmm.predict(vector_X)
 vector_means, vector_covs, vector_cluster_probs = vector_gmm.means_, vector_gmm.covariances_, vector_gmm.weights_
 
-output_model["vector_model"] = {"means": vector_means.tolist(), 
-                                "covs": vector_covs.tolist(), 
+output_model["vector_model"] = {"means": vector_means.tolist(),
+                                "covs": vector_covs.tolist(),
                                 "cluster_probs": vector_cluster_probs.tolist(),
-                                "X_train": vector_X.tolist(), 
+                                "X_train": vector_X.tolist(),
                                 "y_train": vector_labels.tolist(),
-                                "means_dist_time": vector_means_dist_time.tolist(), 
+                                "means_dist_time": vector_means_dist_time.tolist(),
                                 "covs_dist_time": vector_covs_dist_time.tolist()}
 
 
@@ -445,34 +474,33 @@ output_model["vector_model"] = {"means": vector_means.tolist(),
 all_dep_trajs = np.array(all_dep_trajs)
 all_dep_deviations = np.array(all_dep_deviations)
 
-L = all_dep_deviations[0].shape[0] 
+L = all_dep_deviations[0].shape[0]
 N = len(all_dep_deviations)
 dep_X = np.zeros((N, L*3+2))
 
 for i, dev_data in enumerate(all_dep_deviations):
-    dep_X[i, 0] = all_dep_trajs[i][-1,0] - all_dep_trajs[i][0,0]        
+    dep_X[i, 0] = all_dep_trajs[i][-1,0] - all_dep_trajs[i][0,0]
     dep_X[i, 1:-1] = dev_data.reshape(dev_data.shape[0]*dev_data.shape[1])
     dep_X[i, -1] = all_dep_trajs_dist[i]
 
 # GMM of total_dist & transit_time
-dep_gmm_dist_time = GaussianMixture(n_components=2, reg_covar=2e-05, covariance_type='tied')
+dep_gmm_dist_time = GaussianMixture(n_components=5, reg_covar=1e-04)
 dep_gmm_dist_time.fit(np.column_stack((dep_X[:,-1], dep_X[:,0])))
 dep_means_dist_time, dep_covs_dist_time = dep_gmm_dist_time.means_, dep_gmm_dist_time.covariances_
 
 # GMM of departure deviations
-dep_gmm = GaussianMixture(n_components=8, reg_covar=1e-05)
+dep_gmm = GaussianMixture(n_components=9, reg_covar=1e-04)
 dep_gmm.fit(dep_X)
 dep_labels = dep_gmm.predict(dep_X)
 dep_means, dep_covs, dep_cluster_probs = dep_gmm.means_, dep_gmm.covariances_, dep_gmm.weights_
 
-output_model["departure_model"] = {"means": dep_means.tolist(), 
-                                   "covs": dep_covs.tolist(), 
-                                   "cluster_probs": dep_cluster_probs.tolist(), 
-                                   "X_train": dep_X.tolist(), 
+output_model["departure_model"] = {"means": dep_means.tolist(),
+                                   "covs": dep_covs.tolist(),
+                                   "cluster_probs": dep_cluster_probs.tolist(),
+                                   "X_train": dep_X.tolist(),
                                    "y_train": dep_labels.tolist(),
-                                   "means_dist_time": dep_means_dist_time.tolist(), 
+                                   "means_dist_time": dep_means_dist_time.tolist(),
                                    "covs_dist_time": dep_covs_dist_time.tolist()}
-
 
 
 ########################################################################
@@ -512,7 +540,7 @@ output_model["inter_arrdep_model"] = dict()
 arrdep_list = ['arr_arr', 'arr_dep','dep_arr', 'dep_dep']
 num_arrdep = []
 for i, X in enumerate(arrdep_list):
-    gmm = GaussianMixture(n_components=5, reg_covar=2e-06)
+    gmm = GaussianMixture(n_components=5, reg_covar=1e-05)
     gmm.fit(np.array(eval('train_X_' + X)).reshape(-1,1))
     means, covs, cluster_probs = gmm.means_, gmm.covariances_, gmm.weights_
     
