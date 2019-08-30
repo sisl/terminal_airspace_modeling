@@ -2,31 +2,26 @@
 
 This repository contains an aircraft trajectory learning algorithm used for the terminal airspace modeling project.
 
-<img src="data/demo_0.gif" width="750">  
-  
-  
-<img src="data/demo_1.gif" width="800">  
-  
+<img src="data/demo_0.gif" width="700">  
   
 <img src="data/demo_2.png" width="850">  
 
 
 ## Scripts (Description & Usage)
 -i : input files  
--o : output files  
--mp : number of processes for multi-processing  
+-o : output files
 
 
 * **model_train.py** : learns the deviations of trajectories from procedures, distance vs. transit time, inter arrival-departure times
 ```bash
 python3 src/model_train.py -i data/radar_data.csv data/train_input.json 
-    -o output/model.json -mp 4
+    -o output/model.json
 ```
 
 * **model_generate.py** : generates synthetic trajectories using trained deviations and test inputs
 ```bash
 python3 src/model_generate.py -i output/model.json data/test_input.json 
-    -o output/synthetic_trajs.csv -mp 4
+    -o output/synthetic_trajs.csv
 ```
 
 * **radar_animate.py** : animates actual/synthetic trajectories 
